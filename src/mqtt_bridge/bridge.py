@@ -2,7 +2,7 @@
 from __future__ import absolute_import
 
 from abc import ABCMeta, abstractmethod
-
+import time
 import inject
 import boto3
 import AWSIoTPythonSDK.core.protocol.paho.client as client
@@ -28,11 +28,8 @@ def create_bridge(factory, msg_type, topic_from, topic_to, **kwargs):
     if isinstance(msg_type, basestring):
         msg_type = lookup_object(msg_type)
     if not issubclass(msg_type, rospy.Message):
-        raise TypeError(
-            "msg_type should be rospy.Message instance or its string"
-            "reprensentation")
-    return factory(
-        topic_from=topic_from, topic_to=topic_to, msg_type=msg_type, **kwargs)
+        raise TypeError("msg_type should be rospy.Message instance or its string" "reprensentation")
+    return factory(topic_from=topic_from, topic_to=topic_to, msg_type=msg_type, **kwargs)
 
 
 class Bridge(object):
@@ -42,12 +39,13 @@ class Bridge(object):
     :param _serialize: message serialize callable
     :param _deserialize: message deserialize callable
     """
+
     __metaclass__ = ABCMeta
 
     _mqtt_client = inject.attr(client.Client)
-    _serialize = inject.attr('serializer')
-    _deserialize = inject.attr('deserializer')
-    _extract_private_path = inject.attr('mqtt_private_path_extractor')
+    _serialize = inject.attr("serializer")
+    _deserialize = inject.attr("deserializer")
+    _extract_private_path = inject.attr("mqtt_private_path_extractor")
 
 
 class RosToMqttBridge(Bridge):
@@ -67,15 +65,32 @@ class RosToMqttBridge(Bridge):
         rospy.Subscriber(topic_from, msg_type, self._callback_ros)
 
     def _callback_ros(self, msg):
-        rospy.logdebug("ROS received from {}".format(self._topic_from))
         now = rospy.get_time()
         if now - self._last_published >= self._interval:
             self._publish(msg)
             self._last_published = now
+        else:
+            rospy.logdebug("Not sending")
 
     def _publish(self, msg):
         payload = self._serialize(extract_values(msg))
-        self._mqtt_client.publish(self._topic_to, payload, 1)
+        #        rospy.loginfo(self._mqtt_client)
+        #        rospy.loginfo(self._mqtt_client.publish)
+        #        rospy.loginfo("payload=" + payload)
+        # if "imu" in self._topic_to:
+        #            rospy.loginfo("payload=" + payload)
+        #        result = self._mqtt_client.publish(self._topic_to, payload, 0)
+        #        rospy.loginfo("published: " + str(result))
+
+        result = self._mqtt_client.publishAsync(topic=self._topic_to, payload=payload, QoS=1)
+
+
+#            rospy.loginfo("published: " + str(result))
+
+#        result = self._mqtt_client.publishAsync(self._topic_to, payload, 0)
+#        rospy.loginfo("published: " + str(result))
+#        result = self._mqtt_client.publishAsync(self._topic_to, payload, 1)
+#        rospy.loginfo("published: " + str(result))
 
 
 class MqttToRosBridge(Bridge):
@@ -88,8 +103,7 @@ class MqttToRosBridge(Bridge):
     :param int queue_size: ROS publisher's queue size
     """
 
-    def __init__(self, topic_from, topic_to, msg_type, frequency=None,
-                 queue_size=10):
+    def __init__(self, topic_from, topic_to, msg_type, frequency=None, queue_size=10):
         self._topic_from = self._extract_private_path(topic_from)
         self._topic_to = topic_to
         self._msg_type = msg_type
@@ -100,7 +114,8 @@ class MqttToRosBridge(Bridge):
         self._mqtt_client.subscribe(self._topic_from)
         self._mqtt_client.message_callback_add(self._topic_from, 1, self._callback_mqtt)
         self._publisher = rospy.Publisher(
-            self._topic_to, self._msg_type, queue_size=self._queue_size)
+            self._topic_to, self._msg_type, queue_size=self._queue_size
+        )
 
     def _callback_mqtt(self, client, userdata, mqtt_msg):
         """ callback from MQTT
@@ -130,5 +145,10 @@ class MqttToRosBridge(Bridge):
         return populate_instance(msg_dict, self._msg_type())
 
 
-__all__ = ['register_bridge_factory', 'create_bridge', 'Bridge',
-           'RosToMqttBridge', 'MqttToRosBridge']
+__all__ = [
+    "register_bridge_factory",
+    "create_bridge",
+    "Bridge",
+    "RosToMqttBridge",
+    "MqttToRosBridge",
+]
